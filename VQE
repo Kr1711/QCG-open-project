@@ -1,0 +1,89 @@
+#Importing the necessary libraries
+import numpy as np
+import time
+import matplotlib.pyplot as plt
+from qiskit import Aer, QuantumCircuit, execute
+from qiskit.extensions import XGate, YGate, ZGate, CXGate, IGate
+from qiskit.algorithms.optimizers import SPSA
+from qiskit.opflow import WeightedPauliOperator
+from qiskit.algorithms import VQE
+#Defining the hamiltonian
+def heisenberg_hamiltonian(n_sites, j=1.0, h=1.0):
+    pauli_x = np.array([[0, 1], [1, 0]])
+    pauli_y = np.array([[0, -1j], [1j, 0]])
+    pauli_z = np.array([[1, 0], [0, -1]])
+    hamiltonian = WeightedPauliOperator()
+    
+    for i in range(n_sites):
+        x_ops = [pauli_x] * n_sites
+        x_ops[i] = pauli_x
+        y_ops = [pauli_y] * n_sites
+        y_ops[i] = pauli_y
+        z_ops = [pauli_z] * n_sites
+        z_ops[i] = pauli_z
+        
+        hamiltonian += WeightedPauliOperator.from_list([(j, z_ops), (j, x_ops), (j, y_ops)])
+        hamiltonian += WeightedPauliOperator.from_list([(h, z_ops[i])])
+    
+    return hamiltonian
+#Defining random circuit ansatz
+def random_circuit_ansatz(num_qubits, depth):
+    circuit = QuantumCircuit(num_qubits)
+    
+    for _ in range(depth):
+        for i in range(num_qubits):
+            circuit.rx(np.random.uniform(0, 2 * np.pi), i)
+            circuit.ry(np.random.uniform(0, 2 * np.pi), i)
+            circuit.rz(np.random.uniform(0, 2 * np.pi), i)
+        
+        for i in range(num_qubits - 1):
+            circuit.append(CXGate(), [i, i + 1])
+    
+    return circuit
+#Incorporating VQE and optimizer into the circuit 
+def run_vqe(heisenberg_hamiltonian, random_circuit_ansatz, num_qubits, depth, include_two_qubit_gates):
+    backend = Aer.get_backend('statevector_simulator')
+    optimizer = SPSA(maxiter=1000)
+    
+    if include_two_qubit_gates:
+        ansatz_circuit = random_circuit_ansatz(num_qubits, depth)
+    else:
+        ansatz_circuit = random_circuit_ansatz(num_qubits, depth)
+        for i in range(num_qubits - 1):
+            ansatz_circuit.append(IGate(), [i, i + 1])
+    
+    vqe = VQE(heisenberg_hamiltonian, ansatz_circuit, optimizer)
+    
+    result = vqe.run(backend)
+    
+    return result
+x=int(input("number of qubits:"))
+y=int(input("depth of the ansatz:"))
+
+#Running VQE with two-qubit gates included in the ansatz circuit
+start_time = time.time()
+result_with_two_qubit_gates = run_vqe(heisenberg_hamiltonian, random_circuit_ansatz,x,y, True)
+end_time = time.time()
+time_with_two_qubit_gates= end_time-start_time
+
+#Running VQE without two-qubit gates in the ansatz circuit
+start_time = time.time()
+result_without_two_qubit_gates = run_vqe(heisenberg_hamiltonian, random_circuit_ansatz,x,y, False)
+end_time = time.time()
+time_without_two_qubit_gates= end_time-start_time
+#Energy and time for both cases
+print("Ground-state energy with two-qubit gates included:", result_with_two_qubit_gates['energy'])
+print("Time with two qubits included:",time_with_two_qubit_gates)
+print("Ground-state energy without two-qubit gates:", result_without_two_qubit_gates['energy'])
+print("Time without two qubits included:",time_without_two_qubit_gates)
+#Plots comparing accuracy and time
+x = ['With Gates', 'Without Gates']
+energy_values = [result_with_two_qubit_gates, result_without_two_qubit_gates]
+time_values = [time_with_two_qubit_gates, time_without_two_qubit_gates]
+    
+fig, axs = plt.subplots(2)
+axs[0].bar(x, energy_values)
+axs[0].set_ylabel('Energy')
+axs[1].bar(x, time_values)
+axs[1].set_ylabel('Time')
+plt.show()
